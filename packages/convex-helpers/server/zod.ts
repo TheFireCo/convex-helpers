@@ -57,6 +57,23 @@ export const zid = <
 ) => new Zid({ typeName: "ConvexId", tableName });
 
 /**
+ * Create a validator for a Fireview `Fid`.
+ *
+ * When used as a validator, it will check that it's for the right table.
+ * When used as a parser, it will only check that the Fid is a string.
+ *
+ * @param tableName - The table that the `Fid` references. i.e.` Fid<tableName>`
+ * @returns - A Zod object representing a Fireview `Fid`
+ */
+export const zfid = <
+  DataModel extends GenericDataModel,
+  TableName extends
+    TableNamesInDataModel<DataModel> = TableNamesInDataModel<DataModel>,
+>(
+  tableName: TableName,
+) => new Zfid({ typeName: "FireviewId", tableName });
+
+/**
  * zCustomQuery is like customQuery, but allows validation via zod.
  * You can define custom behavior on top of `query` or `internalQuery`
  * by passing a function that modifies the ctx and args. Or NoOp to do nothing.
@@ -465,8 +482,10 @@ type ConvexValidatorFromZod<Z extends z.ZodTypeAny> =
   // Keep this in sync with zodToConvex implementation
   Z extends Zid<infer TableName>
     ? VId<GenericId<TableName>>
-    : Z extends z.ZodString
+    : Z extends Zfid<infer TableName>
       ? VString
+      : Z extends z.ZodString
+        ? VString
       : Z extends z.ZodNumber
         ? VFloat64
         : Z extends z.ZodNaN
@@ -622,10 +641,12 @@ type ConvexValidatorFromZod<Z extends z.ZodTypeAny> =
 export function zodToConvex<Z extends z.ZodTypeAny>(
   zod: Z,
 ): ConvexValidatorFromZod<Z> {
-  const typeName: ZodFirstPartyTypeKind | "ConvexId" = zod._def.typeName;
+  const typeName: ZodFirstPartyTypeKind | "ConvexId" | "FireviewId" = zod._def.typeName;
   switch (typeName) {
     case "ConvexId":
       return v.id(zod._def.tableName) as ConvexValidatorFromZod<Z>;
+    case "FireviewId":
+      return v.string() as ConvexValidatorFromZod<Z>;
     case "ZodString":
       return v.string() as ConvexValidatorFromZod<Z>;
     case "ZodNumber":
@@ -747,6 +768,25 @@ export class Zid<TableName extends string> extends z.ZodType<
 > {
   _parse(input: z.ParseInput) {
     return z.string()._parse(input) as z.ParseReturnType<GenericId<TableName>>;
+  }
+}
+
+interface ZfidDef<TableName extends string> extends ZodTypeDef {
+  typeName: "FireviewId";
+  tableName: TableName;
+}
+
+export const FID_LENGTH = 25; // Convex has 32, but we don't need that much. Since this is used in URLs, we want it to be short ideally. nanoid default is 21.
+
+
+export class Zfid<TableName extends string> extends z.ZodType<
+  GenericId<TableName>,
+  ZfidDef<TableName>
+> {
+  _parse(input: z.ParseInput) {
+    return z.string().length(FID_LENGTH)._parse(input) as z.ParseReturnType<
+      GenericId<TableName>
+    >;
   }
 }
 
